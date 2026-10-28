@@ -134,7 +134,27 @@ try{
     $profile.Video.PixelAspectRatio.Numerator=1;$profile.Video.PixelAspectRatio.Denominator=1
     if($video.Bitrate -gt 0){$profile.Video.Bitrate=$video.Bitrate}
     $stage='TrimRender'
-    $failure=Await-Operation ($composition.RenderToFileAsync($output,[Windows.Media.Editing.MediaTrimmingPreference]::Precise,$profile)) ([Windows.Media.Transcoding.TranscodeFailureReason]) ([double])
+    try{
+      $failure=Await-Operation ($composition.RenderToFileAsync($output,[Windows.Media.Editing.MediaTrimmingPreference]::Precise,$profile)) ([Windows.Media.Transcoding.TranscodeFailureReason]) ([double])
+    }catch{
+      $cause=$_.Exception;while($cause.InnerException){$cause=$cause.InnerException}
+      # Some desktop GPU encoders reject valid source dimensions/rates with
+      # MF_E_TRANSFORM_TYPE_NOT_SET. Retry this encoder negotiation failure with
+      # the Windows software transcoder, preserving the exact requested range.
+      if($cause.HResult -ne -1072861856){throw}
+      $stage='TrimSoftware'
+      $output=Await-Operation ($folder.CreateFileAsync('trimmed.mp4',[Windows.Storage.CreationCollisionOption]::ReplaceExisting)) ([Windows.Storage.StorageFile])
+      $storage=Await-Operation ([Windows.Storage.StorageFile]::GetFileFromPathAsync($source)) ([Windows.Storage.StorageFile])
+      $transcoder=New-Object Windows.Media.Transcoding.MediaTranscoder
+      $transcoder.HardwareAccelerationEnabled=$false
+      $transcoder.AlwaysReencode=$true
+      $transcoder.TrimStartTime=[TimeSpan]::FromMilliseconds($start)
+      $transcoder.TrimStopTime=[TimeSpan]::FromMilliseconds($end)
+      $prepared=Await-Operation ($transcoder.PrepareFileTranscodeAsync($storage,$output,$profile)) ([Windows.Media.Transcoding.PrepareTranscodeResult])
+      if(-not $prepared.CanTranscode){throw ('Windows could not encode this recording: '+$prepared.FailureReason)}
+      Await-ProgressAction ($prepared.TranscodeAsync())
+      $failure=[Windows.Media.Transcoding.TranscodeFailureReason]::None
+    }
     if($failure -ne [Windows.Media.Transcoding.TranscodeFailureReason]::None){throw ('Windows could not encode this recording: '+$failure)}
     $stage='TrimReopen';$clip=Open-Clip ([IO.Path]::Combine($directory,'trimmed.mp4'))
     $result=Describe-Clip $clip

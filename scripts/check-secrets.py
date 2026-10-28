@@ -9,6 +9,8 @@ import os
 import platform
 import subprocess
 import tarfile
+import zipfile
+import shutil
 import tempfile
 import urllib.request
 
@@ -18,6 +20,7 @@ ARCHIVES = {
     ('Darwin', 'arm64'): ('darwin_arm64', 'b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5'),
     ('Darwin', 'x86_64'): ('darwin_x64', 'dfe101a4db2255fc85120ac7f3d25e4342c3c20cf749f2c20a18081af1952709'),
     ('Linux', 'x86_64'): ('linux_x64', '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb'),
+    ('Windows', 'AMD64'): ('windows_x64', 'd29144deff3a68aa93ced33dddf84b7fdc26070add4aa0f4513094c8332afc4e'),
 }
 
 
@@ -28,24 +31,38 @@ def main():
     reports = args.report_dir.resolve()
     reports.mkdir(parents=True, exist_ok=True)
     suffix, checksum = ARCHIVES[(platform.system(), platform.machine())]
-    url = f'https://github.com/gitleaks/gitleaks/releases/download/v{VERSION}/gitleaks_{VERSION}_{suffix}.tar.gz'
+    windows = platform.system() == 'Windows'
+    extension = 'zip' if windows else 'tar.gz'
+    url = f'https://github.com/gitleaks/gitleaks/releases/download/v{VERSION}/gitleaks_{VERSION}_{suffix}.{extension}'
     request = urllib.request.Request(url, headers={'User-Agent': 'ClipBoardLine-source-security-check'})
     archive = urllib.request.urlopen(request, timeout=60).read()
     if hashlib.sha256(archive).hexdigest() != checksum:
         raise SystemExit('Pinned secret-scanner checksum did not match')
     with tempfile.TemporaryDirectory(prefix='clipboardline-secret-scanner-') as temporary:
-        executable = Path(temporary) / 'gitleaks'
-        with tarfile.open(fileobj=io.BytesIO(archive), mode='r:gz') as tar:
-            entry = tar.getmember('gitleaks')
-            if not entry.isfile():
-                raise SystemExit('Secret-scanner archive has an invalid executable')
-            executable.write_bytes(tar.extractfile(entry).read())
+        executable = Path(temporary) / ('gitleaks.exe' if windows else 'gitleaks')
+        if windows:
+            with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+                executable.write_bytes(bundle.read('gitleaks.exe'))
+        else:
+            with tarfile.open(fileobj=io.BytesIO(archive), mode='r:gz') as tar:
+                entry = tar.getmember('gitleaks')
+                if not entry.isfile():
+                    raise SystemExit('Secret-scanner archive has an invalid executable')
+                executable.write_bytes(tar.extractfile(entry).read())
         os.chmod(executable, 0o700)
         base = [str(executable), '--no-banner', '--redact=100', '--report-format', 'json']
         probe = Path(temporary) / 'probe.json'
         # A fresh, throwaway in-memory key proves the detector actually runs.
         # It never authorizes anything, reaches disk, or enters a public report.
-        dummy = subprocess.check_output(['openssl', 'genrsa', '2048'], text=True, stderr=subprocess.DEVNULL)
+        openssl = shutil.which('openssl')
+        if not openssl and windows:
+            git = shutil.which('git')
+            candidate = Path(git).resolve().parent.parent / 'usr/bin/openssl.exe' if git else None
+            if candidate and candidate.is_file():
+                openssl = str(candidate)
+        if not openssl:
+            raise SystemExit('Install OpenSSL (included with Git for Windows) for the positive detection control')
+        dummy = subprocess.check_output([openssl, 'genrsa', '2048'], text=True, stderr=subprocess.DEVNULL)
         control = subprocess.run(base + ['--report-path', str(probe), 'stdin'], input=dummy, text=True,
                                  capture_output=True, cwd=ROOT)
         if control.returncode != 1 or not probe.exists() or not json.loads(probe.read_text()):

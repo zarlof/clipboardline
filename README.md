@@ -1,5 +1,7 @@
 # ClipBoardLine
 
+**zarlof Windows fork:** [Türkçe kurulum ve Windows düzeltmeleri](ZARLOF-WINDOWS.md). Original project and credits are retained below.
+
 **A place for everything you copy.**
 
 Images, text and links, close at hand. Keep recent copies on three shelves, save what matters in a local Library, and move through it all with your keyboard.

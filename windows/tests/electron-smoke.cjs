@@ -57,6 +57,11 @@ async function main(){
   await until(()=>application.evaluate(()=>!!global.__clipboardLineTest),Boolean);
   const nativeInitialization=await application.evaluate(async()=>{try{return{focus:await global.__clipboardLineTest.native.capture()};}catch(error){return{error:error.message};}});assert.ok(!nativeInitialization.error,JSON.stringify(nativeInitialization));check('native UIA focus bridge initializes Microsoft system providers');
   const nativeFocusPolicy=await application.evaluate(()=>global.__clipboardLineTest.native.selfTestFocusPolicy());assert.equal(nativeFocusPolicy.ok,true);assert.equal(nativeFocusPolicy.passed,12);assert.equal(nativeFocusPolicy.capturePassed,30);check('native IA2 policy rejects readonly/protected/disabled/defunct and bounded BUSY-document capture keeps the first stable editable identity');
+  // These keyboard journeys assert English UI labels. Select that language in
+  // the isolated fixture, independently of the Windows desktop locale. The
+  // native tray suite still explicitly exercises Turkish localization, and the
+  // final production launch keeps its own untouched system-language setting.
+  await page.evaluate(()=>window.clipboardLine.command('setSettings',{patch:{language:'en'}}));
   await appIconAcceptance({application,check,output});
   await statusTrayAcceptance({page,application,check,until,output});
   await shelfPerformanceAcceptance({page,application,check,until,output});

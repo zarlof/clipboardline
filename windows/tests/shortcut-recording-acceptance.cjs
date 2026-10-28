@@ -17,7 +17,7 @@ module.exports=async function shortcutRecordingAcceptance({page,application,chec
   await page.locator('.record-wait[data-recording-ready="true"]').waitFor();
   const state=await nativeState();assert.equal(state.recording.suspended,true);assert.equal(state.search,false);assert.equal(state.unrelated,true);
  };
- const ended=async()=>{await until(nativeState,value=>!value.recording.suspended&&value.search&&value.unrelated);await page.locator('[aria-label="Record shortcut"]').waitFor({state:'hidden'});};
+ const ended=async()=>{await until(nativeState,value=>!value.recording.suspended&&value.search&&value.unrelated);await page.locator('.record-wait').waitFor({state:'hidden'});};
  const extra=await application.evaluate(({globalShortcut},key)=>globalShortcut.register(key,()=>{}),blocked);assert.equal(extra,true,'Isolated unrelated shortcut must be available.');
  try{
   await open('search');await fixtureCommand({action:'keys',keys:'^%s'});
